@@ -6,6 +6,7 @@ import org.apache.poi.util.IOUtils;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import server.config.DatabaseConfig;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -41,6 +42,9 @@ public class ExcelExportService {
     private record GiamSatRow(int stt, String maGv, String hoTen, String phamVi) {
     }
 
+    public record ExportData(String folderName, byte[] phanCongBytes, byte[] giamSatBytes) {
+    }
+
     public Path exportBaoCaoCaThi(int thuTuCa, String outputDir, String ngayThiInput, String logoPath) throws Exception {
         LocalDate ngayThi = parseNgayThi(ngayThiInput);
 
@@ -50,16 +54,10 @@ public class ExcelExportService {
         Path outFolder = Path.of(outputDir, folderName);
         Path outputPath = outFolder.resolve(fileName);
 
-        try (Connection conn = DatabaseConfig.getConnection(); Workbook workbook = new XSSFWorkbook()) {
-            List<PhanCongRow> phanCongRows = loadPhanCongRows(conn, thuTuCa);
-            List<GiamSatRow> giamSatRows = loadGiamSatRows(conn, thuTuCa);
-
-            createPhanCongSheets(workbook, thuTuCa, ngayThi, phanCongRows, logoPath);
-
-            Files.createDirectories(outFolder);
-            try (OutputStream os = Files.newOutputStream(outputPath)) {
-                workbook.write(os);
-            }
+        byte[] data = buildPhanCongWorkbookBytes(thuTuCa, ngayThi, logoPath);
+        Files.createDirectories(outFolder);
+        try (OutputStream os = Files.newOutputStream(outputPath)) {
+            os.write(data);
         }
 
         return outputPath;
@@ -74,17 +72,21 @@ public class ExcelExportService {
         Path outFolder = Path.of(outputDir, folderName);
         Path outputPath = outFolder.resolve(fileName);
 
-        try (Connection conn = DatabaseConfig.getConnection(); Workbook workbook = new XSSFWorkbook()) {
-            List<GiamSatRow> giamSatRows = loadGiamSatRows(conn, thuTuCa);
-            createGiamSatSheets(workbook, thuTuCa, ngayThi, giamSatRows, logoPath);
-
-            Files.createDirectories(outFolder);
-            try (OutputStream os = Files.newOutputStream(outputPath)) {
-                workbook.write(os);
-            }
+        byte[] data = buildGiamSatWorkbookBytes(thuTuCa, ngayThi, logoPath);
+        Files.createDirectories(outFolder);
+        try (OutputStream os = Files.newOutputStream(outputPath)) {
+            os.write(data);
         }
 
         return outputPath;
+    }
+
+    public ExportData exportBaoCaoData(int thuTuCa, String ngayThiInput, String logoPath) throws Exception {
+        LocalDate ngayThi = parseNgayThi(ngayThiInput);
+        String folderName = buildCommonFolderName(ngayThi, thuTuCa);
+        byte[] phanCongBytes = buildPhanCongWorkbookBytes(thuTuCa, ngayThi, logoPath);
+        byte[] giamSatBytes = buildGiamSatWorkbookBytes(thuTuCa, ngayThi, logoPath);
+        return new ExportData(folderName, phanCongBytes, giamSatBytes);
     }
 
     public Path exportDanhSachPhanCong(int thuTuCa, String outputDir) throws Exception {
@@ -93,6 +95,28 @@ public class ExcelExportService {
 
     public Path exportDanhSachGiamSat(int thuTuCa, String outputDir) throws Exception {
         return exportBaoCaoGiamSat(thuTuCa, outputDir, LocalDate.now().format(DISPLAY_DATE_FORMAT), "");
+    }
+
+    private byte[] buildPhanCongWorkbookBytes(int thuTuCa, LocalDate ngayThi, String logoPath) throws Exception {
+        try (Connection conn = DatabaseConfig.getConnection();
+             Workbook workbook = new XSSFWorkbook();
+             ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            List<PhanCongRow> phanCongRows = loadPhanCongRows(conn, thuTuCa);
+            createPhanCongSheets(workbook, thuTuCa, ngayThi, phanCongRows, logoPath);
+            workbook.write(baos);
+            return baos.toByteArray();
+        }
+    }
+
+    private byte[] buildGiamSatWorkbookBytes(int thuTuCa, LocalDate ngayThi, String logoPath) throws Exception {
+        try (Connection conn = DatabaseConfig.getConnection();
+             Workbook workbook = new XSSFWorkbook();
+             ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            List<GiamSatRow> giamSatRows = loadGiamSatRows(conn, thuTuCa);
+            createGiamSatSheets(workbook, thuTuCa, ngayThi, giamSatRows, logoPath);
+            workbook.write(baos);
+            return baos.toByteArray();
+        }
     }
 
     private void createPhanCongSheets(

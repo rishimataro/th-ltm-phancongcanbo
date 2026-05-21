@@ -19,12 +19,13 @@ import java.net.NetworkInterface;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.HashSet;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.Set;
+import java.util.Base64;
 
 public class ClientService {
 
@@ -103,8 +104,27 @@ public class ClientService {
 
     public String xuatExcel(int thuTuCa, String outputDir, String ngayThi, String logoPath) throws Exception {
         String safeLogoPath = logoPath == null ? "" : logoPath;
-        String safeOutputDir = normalizeOutputDirForServer(outputDir);
-        return sendCommand("XUAT_EXCEL|" + thuTuCa + "|" + safeOutputDir + "|" + ngayThi + "|" + safeLogoPath);
+        String response = sendCommand("XUAT_EXCEL_DATA|" + thuTuCa + "|" + ngayThi + "|" + safeLogoPath);
+        if (!response.startsWith("OK|")) {
+            return response;
+        }
+
+        String json = response.substring("OK|".length());
+        ExcelPayload payload = gson.fromJson(json, ExcelPayload.class);
+        if (payload == null || payload.folderName == null) {
+            return "ERROR|Du lieu Excel tra ve khong hop le";
+        }
+
+        Path outFolder = Path.of(outputDir).resolve(payload.folderName);
+        Files.createDirectories(outFolder);
+
+        Path phanCongPath = outFolder.resolve("DANH_SACH_PHAN_CONG_CAN_BO_COI_THI.xlsx");
+        Path giamSatPath = outFolder.resolve("DANH_SACH_PHAN_CONG_GIAM_SAT.xlsx");
+
+        Files.write(phanCongPath, Base64.getDecoder().decode(payload.phanCongBase64));
+        Files.write(giamSatPath, Base64.getDecoder().decode(payload.giamSatBase64));
+
+        return "OK|Xuat Excel thanh cong: " + phanCongPath + " ; " + giamSatPath;
     }
 
     // Backward-compatible overload for older UI calls.
@@ -230,65 +250,9 @@ public class ClientService {
         return host;
     }
 
-    private String normalizeOutputDirForServer(String outputDir) {
-        String dir = outputDir == null ? "" : outputDir.trim();
-        if (dir.isEmpty()) {
-            return "__SERVER_OUTPUT__";
-        }
-
-        try {
-            if (!isRemoteServerHost()) {
-                return dir;
-            }
-
-            // Khi client và server khác máy, đường dẫn tuyệt đối local thường không hợp lệ trên server.
-            // Fallback về thư mục output trên máy server.
-            if (isAbsoluteLocalPath(dir)) {
-                return "__SERVER_OUTPUT__";
-            }
-        } catch (Exception ignored) {
-            // Nếu không xác định được host thì giữ nguyên để server tự validate.
-        }
-
-        return dir;
-    }
-
-    private boolean isRemoteServerHost() throws Exception {
-        String currentHost = resolveHost(false);
-        if (currentHost == null || currentHost.isBlank()) {
-            return false;
-        }
-
-        String h = currentHost.trim().toLowerCase();
-        if ("localhost".equals(h) || "127.0.0.1".equals(h) || "::1".equals(h)) {
-            return false;
-        }
-
-        Set<String> localIps = new HashSet<>();
-        localIps.add("127.0.0.1");
-        localIps.add("::1");
-        localIps.add(InetAddress.getLocalHost().getHostAddress());
-
-        Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-        while (interfaces.hasMoreElements()) {
-            NetworkInterface ni = interfaces.nextElement();
-            if (!ni.isUp()) {
-                continue;
-            }
-            Enumeration<InetAddress> addrs = ni.getInetAddresses();
-            while (addrs.hasMoreElements()) {
-                localIps.add(addrs.nextElement().getHostAddress());
-            }
-        }
-
-        return !localIps.contains(currentHost);
-    }
-
-    private boolean isAbsoluteLocalPath(String path) {
-        String p = path.trim();
-        if (p.startsWith("/") || p.startsWith("\\")) {
-            return true;
-        }
-        return p.matches("^[a-zA-Z]:\\\\.*");
+    private static class ExcelPayload {
+        String folderName;
+        String phanCongBase64;
+        String giamSatBase64;
     }
 }

@@ -24,6 +24,7 @@ import java.sql.Connection;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.Base64;
 import java.util.function.Consumer;
 
 public class ServerApp {
@@ -38,6 +39,7 @@ public class ServerApp {
     private Thread discoveryThread;
     private volatile int tcpPort;
     private final Consumer<String> logger;
+    private final Gson gson = new Gson();
 
     public ServerApp(Consumer<String> logger) {
         this.logger = logger;
@@ -195,6 +197,28 @@ public class ServerApp {
             return "OK|Xuat Excel thanh cong: " + fileTongHop + " ; " + fileGiamSat;
         }
 
+        if (command.startsWith("XUAT_EXCEL_DATA|")) {
+            String[] parts = command.split("\\|", 4);
+            if (parts.length < 3) {
+                return "ERROR|Cu phap dung: XUAT_EXCEL_DATA|thuTuCa|ngayThi|logoPath(tuy_chon)";
+            }
+
+            int thuTuCa = parseInt(parts[1], "Thu tu ca thi phai la so nguyen duong.");
+            String ngayThi = parts[2];
+            String logoPath = parts.length >= 4 ? parts[3] : "";
+            validateNgayThi(ngayThi);
+
+            ExcelExportService service = new ExcelExportService();
+            ExcelExportService.ExportData data = service.exportBaoCaoData(thuTuCa, ngayThi, logoPath);
+
+            ExcelPayload payload = new ExcelPayload(
+                    data.folderName(),
+                    Base64.getEncoder().encodeToString(data.phanCongBytes()),
+                    Base64.getEncoder().encodeToString(data.giamSatBytes())
+            );
+            return "OK|" + gson.toJson(payload);
+        }
+
         if (command.startsWith("GET_PHAN_CONG|")) {
             String[] parts = command.split("\\|");
             if (parts.length < 2) {
@@ -347,6 +371,13 @@ public class ServerApp {
                 .replace("\n", " ")
                 .replace("\r", " ")
                 .replace("|", "/");
+    }
+
+    private record ExcelPayload(
+            String folderName,
+            String phanCongBase64,
+            String giamSatBase64
+    ) {
     }
 
     private String normalizeOutputDir(String rawOutputDir) {
