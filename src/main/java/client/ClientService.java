@@ -21,8 +21,10 @@ import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Set;
 
 public class ClientService {
 
@@ -101,7 +103,8 @@ public class ClientService {
 
     public String xuatExcel(int thuTuCa, String outputDir, String ngayThi, String logoPath) throws Exception {
         String safeLogoPath = logoPath == null ? "" : logoPath;
-        return sendCommand("XUAT_EXCEL|" + thuTuCa + "|" + outputDir + "|" + ngayThi + "|" + safeLogoPath);
+        String safeOutputDir = normalizeOutputDirForServer(outputDir);
+        return sendCommand("XUAT_EXCEL|" + thuTuCa + "|" + safeOutputDir + "|" + ngayThi + "|" + safeLogoPath);
     }
 
     // Backward-compatible overload for older UI calls.
@@ -225,5 +228,67 @@ public class ClientService {
             // fall through and use fallback host
         }
         return host;
+    }
+
+    private String normalizeOutputDirForServer(String outputDir) {
+        String dir = outputDir == null ? "" : outputDir.trim();
+        if (dir.isEmpty()) {
+            return "__SERVER_OUTPUT__";
+        }
+
+        try {
+            if (!isRemoteServerHost()) {
+                return dir;
+            }
+
+            // Khi client và server khác máy, đường dẫn tuyệt đối local thường không hợp lệ trên server.
+            // Fallback về thư mục output trên máy server.
+            if (isAbsoluteLocalPath(dir)) {
+                return "__SERVER_OUTPUT__";
+            }
+        } catch (Exception ignored) {
+            // Nếu không xác định được host thì giữ nguyên để server tự validate.
+        }
+
+        return dir;
+    }
+
+    private boolean isRemoteServerHost() throws Exception {
+        String currentHost = resolveHost(false);
+        if (currentHost == null || currentHost.isBlank()) {
+            return false;
+        }
+
+        String h = currentHost.trim().toLowerCase();
+        if ("localhost".equals(h) || "127.0.0.1".equals(h) || "::1".equals(h)) {
+            return false;
+        }
+
+        Set<String> localIps = new HashSet<>();
+        localIps.add("127.0.0.1");
+        localIps.add("::1");
+        localIps.add(InetAddress.getLocalHost().getHostAddress());
+
+        Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+        while (interfaces.hasMoreElements()) {
+            NetworkInterface ni = interfaces.nextElement();
+            if (!ni.isUp()) {
+                continue;
+            }
+            Enumeration<InetAddress> addrs = ni.getInetAddresses();
+            while (addrs.hasMoreElements()) {
+                localIps.add(addrs.nextElement().getHostAddress());
+            }
+        }
+
+        return !localIps.contains(currentHost);
+    }
+
+    private boolean isAbsoluteLocalPath(String path) {
+        String p = path.trim();
+        if (p.startsWith("/") || p.startsWith("\\")) {
+            return true;
+        }
+        return p.matches("^[a-zA-Z]:\\\\.*");
     }
 }

@@ -182,7 +182,7 @@ public class ServerApp {
             }
 
             int thuTuCa = parseInt(parts[1], "Thu tu ca thi phai la so nguyen duong.");
-            String outputDir = parts[2];
+            String outputDir = normalizeOutputDir(parts[2]);
             String ngayThi = parts[3];
             String logoPath = parts.length >= 5 ? parts[4] : "";
             validateOutputDir(outputDir);
@@ -301,9 +301,28 @@ public class ServerApp {
             throw new IllegalArgumentException("Thu muc xuat khong duoc de trong.");
         }
 
-        Path path = Path.of(p);
-        if (!Files.exists(path) || !Files.isDirectory(path)) {
-            throw new IllegalArgumentException("Thu muc xuat khong ton tai hoac khong hop le.");
+        Path path;
+        try {
+            path = Path.of(p);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Thu muc xuat khong hop le tren may server.");
+        }
+
+        try {
+            if (!Files.exists(path)) {
+                Files.createDirectories(path);
+            }
+        } catch (Exception e) {
+            throw new IllegalArgumentException(
+                    "Khong tao duoc thu muc xuat tren may server: " + path
+            );
+        }
+
+        if (!Files.isDirectory(path)) {
+            throw new IllegalArgumentException("Thu muc xuat khong hop le tren may server.");
+        }
+        if (!Files.isWritable(path)) {
+            throw new IllegalArgumentException("Thu muc xuat khong co quyen ghi tren may server.");
         }
     }
 
@@ -328,6 +347,14 @@ public class ServerApp {
                 .replace("\n", " ")
                 .replace("\r", " ")
                 .replace("|", "/");
+    }
+
+    private String normalizeOutputDir(String rawOutputDir) {
+        String p = rawOutputDir == null ? "" : rawOutputDir.trim();
+        if (p.isEmpty() || "__SERVER_OUTPUT__".equals(p)) {
+            return Path.of("output").toAbsolutePath().toString();
+        }
+        return p;
     }
 
     private String firstToken(String command) {
